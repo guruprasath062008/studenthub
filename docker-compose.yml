@@ -1,0 +1,134 @@
+version: '3.8'
+
+services:
+  # ==========================================================
+  # Database Service: MySQL 8.0 with Persistent Volume
+  # ==========================================================
+  db:
+    build:
+      context: ./database
+      dockerfile: Dockerfile
+    container_name: studenthub_db
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-rootpassword}
+      MYSQL_DATABASE: ${DB_NAME:-studenthub_db}
+      MYSQL_USER: ${DB_USER:-studenthub_user}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-studenthub_pass}
+    ports:
+      - "3306:3306"
+    volumes:
+      - studenthub_mysql_data:/var/lib/mysql
+      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -u root -p${DB_ROOT_PASSWORD:-rootpassword} || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - studenthub-net
+
+  # ==========================================================
+  # Authentication Microservice: Node.js + Express + JWT
+  # ==========================================================
+  auth-service:
+    build:
+      context: ./auth-service
+      dockerfile: Dockerfile
+    container_name: studenthub_auth_service
+    restart: unless-stopped
+    ports:
+      - "5001:5001"
+    environment:
+      PORT: 5001
+      NODE_ENV: production
+      JWT_SECRET: ${JWT_SECRET:-super_secret_jwt_key_studenthub_2024}
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_USER: root
+      DB_PASSWORD: ${DB_ROOT_PASSWORD:-rootpassword}
+      DB_NAME: ${DB_NAME:-studenthub_db}
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:5001/api/auth/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - studenthub-net
+
+  # ==========================================================
+  # Student API Microservice: Node.js + Express + CRUD
+  # ==========================================================
+  student-service:
+    build:
+      context: ./student-service
+      dockerfile: Dockerfile
+    container_name: studenthub_student_service
+    restart: unless-stopped
+    ports:
+      - "5002:5002"
+    environment:
+      PORT: 5002
+      NODE_ENV: production
+      JWT_SECRET: ${JWT_SECRET:-super_secret_jwt_key_studenthub_2024}
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_USER: root
+      DB_PASSWORD: ${DB_ROOT_PASSWORD:-rootpassword}
+      DB_NAME: ${DB_NAME:-studenthub_db}
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:5002/api/students/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - studenthub-net
+
+  # ==========================================================
+  # Frontend Service: React 18 + Vite + Nginx Reverse Proxy
+  # ==========================================================
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: studenthub_frontend
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    depends_on:
+      - auth-service
+      - student-service
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:80/ || exit 1"]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - studenthub-net
+
+# ============================================================
+# Persistent Volume Configuration
+# Preserves MySQL data across container restarts and updates
+# ============================================================
+volumes:
+  studenthub_mysql_data:
+    name: studenthub_mysql_data
+
+# ============================================================
+# Isolated Bridge Network
+# Allows inter-container communication using service names
+# ============================================================
+networks:
+  studenthub-net:
+    name: studenthub-net
+    driver: bridge
