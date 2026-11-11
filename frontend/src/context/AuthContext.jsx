@@ -2,6 +2,11 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 
 const AuthContext = createContext(null);
 
+// In production (Vercel), VITE_AUTH_API_URL and VITE_STUDENT_API_URL are set.
+// In local dev, the Vite proxy handles /api/* routes automatically (no prefix needed).
+export const AUTH_BASE = import.meta.env.VITE_AUTH_API_URL || '';
+export const STUDENT_BASE = import.meta.env.VITE_STUDENT_API_URL || '';
+
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [token, setToken] = useState(() => localStorage.getItem('studenthub_token'));
@@ -15,11 +20,8 @@ export const AuthProvider = ({ children }) => {
       if (savedToken && savedUser) {
         try {
           setUser(JSON.parse(savedUser));
-          // Validate token with backend
-          const res = await fetch('/api/auth/me', {
-            headers: {
-              'Authorization': `Bearer ${savedToken}`
-            }
+          const res = await fetch(`${AUTH_BASE}/api/auth/me`, {
+            headers: { 'Authorization': `Bearer ${savedToken}` }
           });
           if (res.ok) {
             const data = await res.json();
@@ -28,7 +30,6 @@ export const AuthProvider = ({ children }) => {
               localStorage.setItem('studenthub_user', JSON.stringify(data.user));
             }
           } else {
-            // Token expired or invalid
             logout();
           }
         } catch (err) {
@@ -43,7 +44,7 @@ export const AuthProvider = ({ children }) => {
 
   const login = async (email, password) => {
     try {
-      const res = await fetch('/api/auth/login', {
+      const res = await fetch(`${AUTH_BASE}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password })
@@ -67,7 +68,7 @@ export const AuthProvider = ({ children }) => {
 
   const register = async (name, email, password, role = 'faculty') => {
     try {
-      const res = await fetch('/api/auth/register', {
+      const res = await fetch(`${AUTH_BASE}/api/auth/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, email, password, role })
@@ -96,7 +97,6 @@ export const AuthProvider = ({ children }) => {
     localStorage.removeItem('studenthub_user');
   };
 
-  // Wrapper for authenticated API calls
   const authFetch = async (url, options = {}) => {
     const headers = {
       'Content-Type': 'application/json',
